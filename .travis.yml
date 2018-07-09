@@ -1,24 +1,59 @@
-language: python
+matrix:
+  include:
+  - language: python
 
-python:
-  - "3.6"
+    python:
+      - "3.6"
 
-install:
-  # Install conda
-  - wget http://repo.continuum.io/miniconda/Miniconda-latest-Linux-x86_64.sh -O miniconda.sh
-  - bash miniconda.sh -b -p $HOME/miniconda
-  - export PATH="$HOME/miniconda/bin:$PATH"
-  - python -c 'import os,sys,fcntl; flags = fcntl.fcntl(sys.stdout, fcntl.F_GETFL); fcntl.fcntl(sys.stdout, fcntl.F_SETFL, flags&~os.O_NONBLOCK);'
-  - conda clean --all -y
-  - ./python_env_build.sh
-  - source activate pb_env
-  - python manage.py collectstatic --no-input
+    # Also need OSPC_ANACONDA_TOKEN to be defined in settings
+    env: OGUSA_WORKERS=127.0.0.1:5050 DROPQ_WORKERS=127.0.0.1:5050 TAX_WORKERS=127.0.0.1:5050 NUM_BUDGET_YEARS=2
 
-addons:
-    postgresql: "9.4"
+    install:
+      # Install conda
+      - wget http://repo.continuum.io/miniconda/Miniconda-latest-Linux-x86_64.sh -O miniconda.sh
+      - bash miniconda.sh -b -p $HOME/miniconda
+      - export PATH="$HOME/miniconda/bin:$PATH"
+      - python -c 'import os,sys,fcntl; flags = fcntl.fcntl(sys.stdout, fcntl.F_GETFL); fcntl.fcntl(sys.stdout, fcntl.F_SETFL, flags&~os.O_NONBLOCK);'
+      - conda clean --all -y
+      - ./python_env_build.sh
+      - source activate pb_env
+      - python manage.py collectstatic --no-input
 
-before_script:
-  - psql -c 'create database test_db;' -U postgres
+    addons:
+        postgresql: "9.4"
 
-script:
-  - py.test webapp/apps/
+    before_script:
+      - psql -c 'create database test_db;' -U postgres
+
+    script:
+      - py.test webapp/apps/
+
+  - language: minimal
+
+    sudo: required
+
+    services:
+      - docker
+
+    # Also need AWS_ACCOUNT_ID, AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY to be defined in settings
+    env: TAG=testing
+
+    install:
+      - make OSPC_ANACONDA_TOKEN=$OSPC_ANACONDA_TOKEN dist-build
+
+    script:
+      - make dist-test
+
+    after_success:
+      - |
+        if [[ $TRAVIS_BRANCH = "master" && $TRAVIS_PULL_REQUEST = "false" ]]; then
+          pip install --user awscli
+          export PATH=$PATH:/$HOME/.local/bin # Put aws in the PATH
+          eval $(aws ecr get-login --region us-east-2 --no-include-email)
+          function tagpush() {
+            docker tag opensourcepolicycenter/$1:testing $AWS_ACCOUNT_ID.dkr.ecr.us-east-2.amazonaws.com/$1:testing
+            docker push $AWS_ACCOUNT_ID.dkr.ecr.us-east-2.amazonaws.com/$1:testing
+          }
+          tagpush flask
+          tagpush celery
+        fi
