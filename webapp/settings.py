@@ -120,7 +120,6 @@ TEST_DATABASE = {
 }
 if os.environ.get('DATABASE_URL', None): # DATABASE_URL var is set
     DATABASES = {'default': dj_database_url.config()}
-    DATABASES.update(TEST_DATABASE)
 else: # DATABASE_URL is not set--try default
     DATABASES = {
         'default': {
